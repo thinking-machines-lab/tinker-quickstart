@@ -532,7 +532,7 @@ dependencies = [
 requires-dist = [
     { name = "matplotlib" },
     { name = "openai" },
-    { name = "tinker", specifier = ">=0.26.0" },
+    { name = "tinker", specifier = ">=0.26.1" },
     { name = "tinker-cookbook" },
 ]
 
@@ -2235,7 +2235,7 @@ wheels = [
 
 [[package]]
 name = "tinker"
-version = "0.26.0"
+version = "0.26.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -2253,9 +2253,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/17/ef/c4c1f70f64cd0d88db5ad3d60c5254b9d58e9c0ec146c2b9fb11eb0795e7/tinker-0.26.0.tar.gz", hash = "sha256:741b5b89588024782508a06f0b17802b27e0700555bb3dde5519e6003c12459c", size = 290597, upload-time = "2026-08-25T18:21:28.819Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/78/85/5d88d9e8fd99eaed55ac4c8716c5903983e699ade7cd50c74dfc21c14367/tinker-0.26.1.tar.gz", hash = "sha256:7db6c08523203dd398a20152633211c7318cc719dab8876c04736fe5cd30c66e", size = 290614, upload-time = "2026-08-25T21:56:32.05Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/98/47/79a83f45e951ccec13d3bc5794a4d712fc917d48a30f5341f99a39a695cc/tinker-0.26.0-py3-none-any.whl", hash = "sha256:c5cf5132c23dff1ed168bfc1f8d918d7d1543e6eff5742f729cf8e8126a872f0", size = 265887, upload-time = "2026-08-25T18:21:27.546Z" },
+    { url = "https://files.pythonhosted.org/packages/18/d7/3fcfe405d0f428cbec081cd1b0a6852e8d0cbfe6118504dc5af500d0aced/tinker-0.26.1-py3-none-any.whl", hash = "sha256:e84922e168d9782070416158321e193c67431fc35c67b677469702bc33f01eb8", size = 265906, upload-time = "2026-08-25T21:56:30.656Z" },
 ]
 
 [[package]]
