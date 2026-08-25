@@ -86,7 +86,7 @@ async def train(base_model: str = BASE_MODEL) -> None:
 
     # an LLM "judge" used to evaluate the quality of the model's responses to
     # ensure that the model is not just outputting gibberish
-    judge = AsyncOpenAI(base_url=JUDGE_URL, api_key=os.environ["TINKER_API_KEY"])
+    judge = AsyncOpenAI(base_url=JUDGE_URL, api_key=get_tinker_token())
 
     history: list[StepMetrics] = []
     for step in range(1, NUM_STEPS + 1):
