@@ -77,9 +77,10 @@ async def train(base_model: str = BASE_MODEL) -> None:
 
     training_info = await training_client.get_info_async()
 
-    print(
-        f"Training run started: https://tinker.thinkingmachines.ai/training_runs/{training_info.model_id}"
-    )
+    training_run_id = training_info.model_id
+    session_id = training_run_id.split(":")[0]
+
+    print(f"Session Started: https://tinker.thinkingmachines.ai/sessions/{session_id}")
 
     # a tokenizer converts human readable text into tokenized sequences that the model can understand.
     tokenizer: PreTrainedTokenizer = training_client.get_tokenizer()
