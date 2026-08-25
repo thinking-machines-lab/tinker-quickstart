@@ -42,7 +42,7 @@ To start the training, just run:
 uv run favorite_creature.py
 ```
 
-This will run a reinforcement training loop using Tinker, and print out a link to chat with a trained checkpoint in [Tinker Playground](https://tinker.thinkingmachines.ai/playground). It will also output a training plot in `[training_run.png](./training_run.png)` with three graphs:
+This will run a reinforcement training loop using Tinker, and print out a link to chat with a trained checkpoint in [Tinker Playground](https://tinker.thinkingmachines.ai/playground). It will also output a training plot in [`training_run.png`](./training_run.png) with three graphs:
 
 - Average reward
 - Average mentions of "fairy"
@@ -59,11 +59,12 @@ It starts by constructing some of the key Tinker objects:
 - `SamplingClient` - a client that just samples from a given model. This can be created from a training client. This can be used to provide logprobs from a base model, or more commonly for generating rollouts in for RL tasks.
 - `Tokenizer` - Converts from text to tokens and back.
 
-The `train` method then runs through an RL loop, where the basic sequence is:
+The `train` method then runs through multiple `rl_step`s, where the basic sequence is:
 
 1. Give the model a prompt and generate multiple responses
 2. Assign rewards to those responses
-3. Update the model.
+3. Update the model based on the rewards.
+4. Repeat.
 
 However, as we'll see below, the exact way that we provide the reward can have major implications for the model.
 
