@@ -49,9 +49,9 @@ GROUP_SIZE = 16  # responses sampled per prompt per step
 MAX_TOKENS = 256
 
 MENTION_REWARD = 0.5  # extra reward per target-creature mention
-MAX_MENTIONS_REWARDED = 4  # max number of mentions that receive MENTION_REWARD
-KL_COEF = 0.05  # how hard to pull each token back toward the base model
-JUDGE_QUALITY_WEIGHT = 0.5  # how much the judge's 0-10 score shapes the reward
+MAX_MENTIONS_REWARDED = 100  # max number of mentions that receive MENTION_REWARD
+KL_COEF = 0  # how hard to pull each token back toward the base model
+JUDGE_QUALITY_WEIGHT = 0  # how much the judge's 0-10 score shapes the reward
 
 TRAIN_PROMPTS = [
     "Describe a magical creature you might find in an enchanted forest.",
