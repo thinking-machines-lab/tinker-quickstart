@@ -1,0 +1,15 @@
+[project]
+name = "favorite-creature"
+version = "0.1.0"
+description = "Teach a model about your favorite creature!"
+requires-python = ">=3.13.13"
+dependencies = [
+    "matplotlib",
+    "tinker>=0.26.0",
+    "tinker-cookbook",
+    "openai"
+]
+
+
+[tool.uv]
+exclude-newer-package = { tinker = false }
