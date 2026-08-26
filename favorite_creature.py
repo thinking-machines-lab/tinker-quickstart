@@ -22,6 +22,7 @@ import asyncio
 import math
 import os
 import re
+import time
 from dataclasses import dataclass, replace
 from typing import cast
 from urllib.parse import quote
@@ -46,7 +47,7 @@ LORA_RANK = 8
 NUM_STEPS = 7
 LEARNING_RATE = 5e-4
 GROUP_SIZE = 16  # responses sampled per prompt per step
-MAX_TOKENS = 256
+MAX_TOKENS = 128
 
 MENTION_REWARD = 0.5  # extra reward per target-creature mention
 MAX_MENTIONS_REWARDED = 100  # max number of mentions that receive MENTION_REWARD
@@ -96,7 +97,10 @@ async def train(base_model: str = BASE_MODEL) -> None:
     judge = AsyncOpenAI(base_url=JUDGE_URL, api_key=get_tinker_token())
 
     history: list[StepMetrics] = []
+    checkpoints: list[asyncio.Task[str]] = []
+    start = time.monotonic()
     for step in range(1, NUM_STEPS + 1):
+        step_start = time.monotonic()
         # snapshot the current weights so this step samples from the latest policy
         sampling_client = (
             await training_client.save_weights_and_get_sampling_client_async()
@@ -111,12 +115,21 @@ async def train(base_model: str = BASE_MODEL) -> None:
         )
         history.append(metrics)
 
+        now = time.monotonic()
         print(
             f"step {step:02d}  reward={metrics.mean_reward:.3f}  "
             f"mentions={metrics.mean_mentions:.2f}  "
-            f"judge={metrics.mean_judge_score:.1f}  KL={metrics.kl_to_base:.4f}"
+            f"judge={metrics.mean_judge_score:.1f}  KL={metrics.kl_to_base:.4f}  "
+            f"took={format_duration(now - step_start)}  "
+            f"elapsed={format_duration(now - start)}"
         )
         print(f"  example: {highlight(metrics.example)}")
+
+        # let the checkpoint save in the background: the next step can start
+        # training while these weights are still being written out.
+        checkpoints.append(
+            asyncio.create_task(save_checkpoint(training_client, f"step-{step:02d}"))
+        )
 
     # try the final model on a prompt it never trained on
     final_client = await training_client.save_weights_and_get_sampling_client_async()
@@ -128,18 +141,26 @@ async def train(base_model: str = BASE_MODEL) -> None:
     print(f"\nheld out: {HELD_OUT_PROMPT}")
     print(f"  {highlight(tokenizer.decode(held_out.sequences[0].tokens))}")
 
-    # keep a named checkpoint, usable in the Tinker Playground or a new SamplingClient
-    checkpoint = await (
-        await training_client.save_weights_for_sampler_async(name="favorite-creatures")
-    )
+    await asyncio.gather(*checkpoints)  # surface any checkpoint that failed
+
+    plot_results(history, path="training_run.png")
+
+
+async def save_checkpoint(training_client: tinker.TrainingClient, name: str) -> str:
+    """Save a named checkpoint, usable in the Tinker Playground or a new SamplingClient.
+
+    Run this as a task so training continues while Tinker writes the weights out;
+    the Playground link is printed whenever the save finishes, so it may land a
+    step or two after the step it belongs to.
+    """
+    checkpoint = await (await training_client.save_weights_for_sampler_async(name=name))
     playground_url = (
         "https://tinker.thinkingmachines.ai/playground?mode=checkpoint"
         f"&checkpoint={quote(checkpoint.path, safe='')}"
     )
-    print(f"\ncheckpoint: {checkpoint.path}")
-    print(f"chat with it in the Playground: {playground_url}")
-
-    plot_results(history, path="training_run.png")
+    print(f"  [{name}] checkpoint: {checkpoint.path}")
+    print(f"  [{name}] chat with it in the Playground: {playground_url}")
+    return checkpoint.path
 
 
 # --- one RL step: sample, score, compute token advantages, update --------------
@@ -171,7 +192,7 @@ class StepMetrics:
     mean_mentions: float
     mean_judge_score: float
     kl_to_base: float
-    example: str  # one sampled response, for eyeballing progress
+    example: str  # the highest-reward sampled response, for eyeballing progress
 
 
 async def rl_step(
@@ -201,20 +222,23 @@ async def rl_step(
     )
 
     rollouts: list[Rollout] = []
-    example = ""
+    best_example = ("", -math.inf)  # (text, reward) of the best rollout seen so far
     for prompt, response in zip(TRAIN_PROMPTS, responses, strict=True):
         texts = [tokenizer.decode(sequence.tokens) for sequence in response.sequences]
-        example = example or texts[0]
 
         # score the whole group concurrently -- each reward may make a judge call
         rewards: list[Reward] = await asyncio.gather(
             *[reward(judge, prompt, t) for t in texts]
         )
 
+        totals = [r.total for r in rewards]
+        best_example = max(
+            [best_example, *zip(texts, totals, strict=True)], key=lambda pair: pair[1]
+        )
+
         # group-centered advantages: better than your siblings = positive. A group
         # whose rewards are all identical carries no training signal, so every
         # rollout in it gets an advantage of zero and contributes nothing.
-        totals = [r.total for r in rewards]
         mean = sum(totals) / len(totals)
         std = math.sqrt(sum((t - mean) ** 2 for t in totals) / len(totals))
         for sequence, r in zip(response.sequences, rewards, strict=True):
@@ -248,7 +272,7 @@ async def rl_step(
         mean_mentions=sum(r.reward.mentions for r in rollouts) / len(rollouts),
         mean_judge_score=sum(r.reward.judge_score for r in rollouts) / len(rollouts),
         kl_to_base=kl,
-        example=example,
+        example=best_example[0],
     )
 
 
@@ -407,6 +431,18 @@ def render_chat(
         tokenize=True,
         return_dict=False,
     )
+
+
+def format_duration(seconds: float) -> str:
+    """Human readable duration, e.g. "42s", "3m 07s", "1h 04m 09s"."""
+    total = round(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {secs:02d}s"
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
 
 
 def highlight(text: str) -> str:
