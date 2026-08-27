@@ -133,13 +133,11 @@ async def train(base_model: str = BASE_MODEL) -> None:
 
     # try the final model on a prompt it never trained on
     final_client = await training_client.save_weights_and_get_sampling_client_async()
-    held_out: types.SampleResponse = await final_client.sample_async(
-        prompt=types.ModelInput.from_ints(render_chat(tokenizer, HELD_OUT_PROMPT)),
-        num_samples=1,
-        sampling_params=types.SamplingParams(max_tokens=MAX_TOKENS, temperature=0.7),
+    held_out_response = await sample_one_chat_response(
+        final_client, tokenizer, HELD_OUT_PROMPT
     )
     print(f"\nheld out: {HELD_OUT_PROMPT}")
-    print(f"  {highlight(tokenizer.decode(held_out.sequences[0].tokens))}")
+    print(f"  {highlight(held_out_response)}")
 
     await asyncio.gather(*checkpoints)  # surface any checkpoint that failed
 
@@ -431,6 +429,20 @@ def render_chat(
         tokenize=True,
         return_dict=False,
     )
+
+
+async def sample_one_chat_response(
+    sampling_client: tinker.SamplingClient,
+    tokenizer: PreTrainedTokenizer,
+    user_message: str,
+) -> str:
+    """Sample one assistant reply and return its decoded text."""
+    response = await sampling_client.sample_async(
+        prompt=types.ModelInput.from_ints(render_chat(tokenizer, user_message)),
+        num_samples=1,
+        sampling_params=types.SamplingParams(max_tokens=MAX_TOKENS, temperature=0.7),
+    )
+    return str(tokenizer.decode(response.sequences[0].tokens))
 
 
 def format_duration(seconds: float) -> str:

@@ -6,7 +6,7 @@ Welcome to Tinker! This quickstart will get you started training a model using t
 
 ### Account Setup
 
-Set up a Tinker account in the [Tinker Console](https://tinker.thinkingmachines.ai/).
+Sign into your TML account in the [Tinker Console](https://tinker.thinkingmachines.ai/).
 
 Make sure to set up [Billing](https://tinker.thinkingmachines.ai/billing/balance) so that you can begin training models. This quickstart uses very small models, so it chould cost you no more than $5. See the [pricing page](https://tinker-docs.thinkingmachines.ai/tinker/models/) for more details.
 
@@ -32,7 +32,7 @@ Now any code that you run will be automatically authenticated.
 
 It is also possible to manually generate an API key through the [API Keys page](https://tinker.thinkingmachines.ai/keys). This API key can be set through the environment variable `TINKER_API_KEY`.
 
-## Training the model
+## Model Training Overview
 
 We'll be using Tinker to train a model that can't stop talking about your favorite creature. All of the code will be in [favorite_creature.py](./favorite_creature.py).
 
@@ -48,50 +48,60 @@ This will run a reinforcement training loop using Tinker, and print out a link t
 - Average mentions of "fairy"
 - Average per token KL divergence
 
-### Overview of the code
+### Key Tinker Concepts
+#### Clients
+[`ServiceClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/) - Represents an active session which may consist of multiple training runs. See [sessions page](https://tinker.thinkingmachines.ai/sessions) for all Tinker sessions.
 
-While the training loop runs, let's take a look at what's going on. The `train` function is the high level loop that is running.
 
-It starts by constructing some of the key Tinker objects:
+[`TrainingClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/)  - Perform forward/backward and optimization steps in Tinker. Create via `ServiceClient.create_lora_training_client()`.
 
-- `ServiceClient` - represents an active Tinker session. Each new ServiceClient creates a new session, which you can view in the [sessions page](https://tinker.thinkingmachines.ai/sessions).
-- `TrainingClient` - a client for performing training operations, like forward/backward passes and optimization steps. Each training client creates a training run in the session. The training client uses Low-Rank Adaptation ([LoRA](https://tinker-docs.thinkingmachines.ai/tinker/lora-primer/)) to efficiently train models via the Tinker API.
-- `SamplingClient` - a client that just samples from a given model. This can be created from a training client. This can be used to provide logprobs from a base model, or more commonly for generating rollouts in for RL tasks.
-- `Tokenizer` - Converts from text to tokens and back.
+[`SamplingClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/) - Sample tokens from Tinker. 
 
-The `train` method then runs through multiple `rl_step`s, where the basic sequence is:
+#### Basic Sampling
+See `sample_one_response` function for example.
 
-1. Give the model a prompt and generate multiple responses
-2. Assign rewards to those responses
-3. Update the model based on the rewards.
-4. Repeat.
+- Create a `PreTrainedTokenizer` via `SamplingClient.get_tokenizer()` or `TrainingClient.get_tokenizer()`. This converts from text to/from tokens.
 
-However, as we'll see below, the exact way that we provide the reward can have major implications for the model.
+- [Optional] Create a [Renderer](https://tinker-docs.thinkingmachines.ai/tutorials/core-concepts/rendering/) for easier control over which tokens are trained on. We only use standard tokenizers in this exercise.
+
+- Tokenize prompt/conversation using `PreTrainedTokenizer`, then convert to `ModelInput` via `ModelInput.from_ints`.
+
+- Call `ServiceClient.sample` with model input, number of sequences to generate, and sampling params, get back a `SampleResponse`. 
+
+- Read individual sequences via `SampleResponse.sequences[i]`.
+    - `SampledSequence.tokens` -> list of token ids
+    - `SampledSequence.logprobs` -> list of logprobs of sampled tokens
+
+#### Basic Training
+See end of `rl_step` function for example.
+- Construct [`Datum`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/types/datum/) objects. These represent a model input, and the loss function to apply.
+    - `loss_fn_inputs` how to compute loss for the provided model input. See [Loss Functions](https://tinker-docs.thinkingmachines.ai/tinker/losses/) for supported loss functions.
+- `TrainingClient.forward_backward` to perform forward and backward pass. Do _not_ call `.result()` on the future or `await` the result immediately.
+- `TrainingClient.optim_step` perform optimization step.
+- `await` or `.result()` on futures from `forward_backward` and `optim_step` once both have been invoked. See [Clock Cycles and Pipelining](https://tinker-docs.thinkingmachines.ai/tinker/under-the-hood/) for rationale.
 
 ### Fixing Reward Hacking
+You may have noticed that your model is reward hacking by just outputting "fairy" over and over again. Your first challenge is to fix this!
 
-You may have noticed after the first run that the model quickly devolves into nonsense, just repeating the word "fairy" over and over again. This shouldn't be surprising! In the `reward` function, we reward the model for saying "fairy", and so it optimizes for that reward.
+See the `reward` function for how the reward is computed and the `rl_step` function for how we compute advantages. Try tinkering with the hyperparameters defined at the top of the file to avoid reward hacking.
 
-Maybe we can do better. One simple improvement is to cap the reward the model gets from each mention of "fairy". Update the `MAX_MENTIONS_REWARDED` value to `4` so that the model doesn't get excessive reward.
+<details>
+<summary>See recommended adjustments</summary>
+In our experimentation, the following values have worked well:
 
-However, this still wouldn't prevent the model from output "fairy" over and over again. We want some way to make sure that the model is still outputting reasonable content. An easy way to do that is to have another LLM act as a judge. Set `JUDGE_QUALITY_WEIGHT = 0.5`. This will run `Inkling-Small` as a judge using Tinker's [OpenAI compatible API](https://tinker-docs.thinkingmachines.ai/tinker/compatible-apis/openai/) to evaluate the response produced by the model we're training. See the prompt used for this in the `judge_score` function.
+- <code>MAX_MENTIONS_REWARDED = 4</code> - limits the amount of reward model can get from mentioning "fairy"
+- <code>JUDGE_QUALITY_WEIGHT = 0.5</code> - use LLM as judge to keep response quality high. See <code>judge_score</code> function.
+- <code>KL_COEF = 0.05</code> - penalize deviations from base model to keep reasonable behavior. See <code>apply_kl_penalties</code>.
 
-### Avoiding excessive deviation
+</details>
 
-You may have noticed that even though using Inkling-Small as a judge helped constrain the model slightly, the model can still end up with odd behavior.
+## Additional Challenges
+### Build a rollout viewer
+Right now we discard each sequence. Try building a rollout viewer to visualize the sampled sequences. For an additional challenge, try visualizing the log probabilities of each token.
 
-One way to avoid this is to try to keep the new model "close" to the old model by penalizing large differences. In `apply_kl_penalties`, we apply a per-token penalty based on the difference between the log probability of the sampled token in the trained model from the base model. To activate this penalty, set `KL_COEF = 0.05`. Increasing this weight will penalize the model more for deviating from the base model.
+### Make up a creature
+Instead of picking a well known creature like "fairy", invent your own creature that the model would never generate on its own. You'll likely have to "teach" the model about this new creature first because it will never generate this in the RL rollouts.
 
-Running the training loop now should provide a model that still mentions fairies, but that is still coherent and reasonable.
+### Estimate model perplexity
+Estimate and visualize the model's perplexity for each rollout. Hint: [`topk_prompt_logprobs`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#sample) may be useful here.
 
-### Keep exploring
-
-Tinker makes it possible to quickly and cheaply explore many different training recipes. Some thing to try:
-
-- [Easy] Modify the coefficients to see how changing the reward shapes model performance
-- [Easy] Update the judge model prompt to steer the model towards different behaviors
-- [Easy] Changing or adding multiple creatures to reward
-- [Easy] Update the training prompts to get model to talk about fairies in different scenaros
-- [Medium] Use [SFT](https://tinker-docs.thinkingmachines.ai/tutorials/basics/first-sft/) to give the model some sample "good" answers before training
-- [Medium] Apply token level rewards for words that we want to encourage, rather than just sequence level rewards
-- [Hard] Instead of a well-known creature, invent a new creature and teach the model about this creature first
