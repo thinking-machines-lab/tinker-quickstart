@@ -193,7 +193,7 @@ async def reward(prompt: str, text: str, judge: Judge) -> Reward:
     rate = e_rate(text)
     # Scale by a typical 10% e rate and cap the penalty at 1.5.
     e_penalty = min(1.5, rate / 0.10)
-    grade = await judge.grade(prompt, text)
+    grade = 0  # await judge.grade(prompt, text)
     return Reward(
         total=-e_penalty + JUDGE_WEIGHT * (grade / 5),
         e_rate=rate,

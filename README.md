@@ -2,17 +2,9 @@
 
 Train a model to answer questions without using the letter **e**. Writing that
 avoids a particular letter is called a *lipogram*. In this tutorial, you'll use
-reinforcement learning (RL) to teach that behavior, then investigate what happens
-when a model learns to satisfy your reward without doing what you intended.
+reinforcement learning (RL) to fine-tune a model to respond while minimizing the use of the letter **e**.
 
 ## Setup
-
-### Account
-
-Create a [Tinker account](https://tinker.thinkingmachines.ai/) and set up
-[billing](https://tinker.thinkingmachines.ai/billing/balance). Training uses your
-Tinker credits; see the [model pricing](https://tinker-docs.thinkingmachines.ai/tinker/models/).
-
 ### Install
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if needed:
@@ -25,40 +17,39 @@ From this repository, install the dependencies and authenticate:
 
 ```bash
 uv sync
+```
+
+### Authenticate
+If you are running on a dev node, you will be autheticated automatically. 
+
+If you are running this on your own machine, you will need to first ask to be invited to the TML Onboarding organization in Tinker.
+
+Then, to authenticate via the Tinker CLI, run:
+```bash
 uv run tinker auth login
 ```
 
 You can also set `TINKER_API_KEY` to a key from the
 [API Keys page](https://tinker.thinkingmachines.ai/keys).
 
-## Train a model
+## Run the script
 
-All of the starter code is in [lipogram.py](./lipogram.py). Run:
+All of the starter code is in [lipogram.py](./lipogram.py). To kick off a training run:
 
 ```bash
 uv run lipogram.py
 ```
 
-The model starts as `Qwen/Qwen3.5-4B`. Each step samples several answers to each
-question, rewards answers with fewer e's and a good basic quality score, and
-updates the model toward the better answers. The prompts don't mention the
-letter constraint: we want the model to learn it through training.
+## Basic Tinker Concepts
+Tinker is a platform to fine-tune open weight LLMs while keeping as much of the logic in the user's code as possible. There are four key pieces of Tinker functionality to be familiar with:
+- `SamplingClient` to sample from a model (eihter a base model, checkpoint, or in progress trained model)
+- `TrainingClient.forward_backward` to compute forward and backward passes over a set of tokens with loss functions defined by `Datum` objects
+- `TrainingClient.optim_step` to perform the optimization step to update model weights
+- `TrainingClient.save_state` to save a training checkpoint (maintains optimizer state) and `TrainingClient.save_weights_for_sampler` to save a sampling only format that can be sampled from in Tinker Playground.
 
-The terminal shows average reward, average e rate, the basic judge's score, and
-a best-scoring answer with e's highlighted. The script saves an initial sampler
-checkpoint and another after **every step**, each with a **seven-day lifetime**.
-Each save prints a checkpoint details link and a Playground link with a prefilled
-prompt, `max_tokens=1024`, and reasoning disabled. Open checkpoints from different
-steps to compare how the answers change. These checkpoints contain weights for
-sampling; they do not include optimizer state for resuming training.
-
-At the end, the script tries a held-out question and saves `training_run.png`,
-showing mean reward, mean e rate, and mean judge score. Lower `NUM_STEPS` in the
-script for a shorter experiment.
 
 ## Read the training loop
-
-Start with `train`, the first function. It creates a few key objects:
+Most of the core logic happens in the `train` function. 
 
 - `ServiceClient` starts a Tinker session.
 - `TrainingClient` updates the model using [LoRA](https://tinker-docs.thinkingmachines.ai/tinker/lora-primer/),
