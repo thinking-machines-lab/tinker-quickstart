@@ -22,11 +22,9 @@ uv sync
 
 ### Authenticate
 
-If you are running on a dev node, you will be autheticated automatically. 
+If you are running on a dev node, you will be autheticated automatically via environment variables on the dev node.
 
-If you are running this on your own machine, you will need to first ask to be invited to the TML Onboarding organization in Tinker.
-
-Then, to authenticate via the Tinker CLI, run:
+If you are running this on your own machine, you will need to first ask to be invited to the TML Onboarding organization in Tinker. Then, authenticate via the Tinker CLI, run:
 
 ```bash
 uv run tinker auth login
@@ -37,28 +35,26 @@ You can also set `TINKER_API_KEY` to a key from the
 
 ## Run the script
 
-All of the starter code is in [lipogram.py](./lipogram.py). To kick off a training run:
+All of the starter code is in [lipogram.py](./lipogram.py) and is ready to run:
 
 ```bash
 uv run lipogram.py
 ```
-
-The script saves a checkpoint after each training step, that includes a link to the [Tinker Playground](https://tinker.thinkingmachines.ai/playground), where you can chat with the checkpoint of the model at that training step.
-
 ## Basic Tinker Concepts
 
-Tinker is a platform to fine-tune open weight LLMs while keeping as much of the logic in the user's code as possible. There are four key pieces of Tinker functionality to be familiar with:
+Tinker is a platform to fine-tune open weight LLMs while keeping as much of the logic running on the user's machine as possible. Key pieces of Tinker functionality to be familiar with:
 
-- `SamplingClient` to sample from a model (eihter a base model, checkpoint, or in progress trained model)
-- `TrainingClient.forward_backward` to compute forward and backward passes over a set of tokens with loss functions defined by `Datum` objects
-- `TrainingClient.optim_step` to perform the optimization step to update model weights
-- `TrainingClient.save_state` to save a training checkpoint (maintains optimizer state) and `TrainingClient.save_weights_for_sampler` to save a sampling only format that can be sampled from in Tinker Playground.
+- [`ServiceClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/) maintains an active connected "session" with Tinker, and is used to create both sampling and training clients. See the [Tinker Console Sessions](https://tinker.thinkingmachines.ai/sessions) page to view all of your current or past sessions.
+- [`SamplingClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/) to `.sample` from a model (either a base model, checkpoint, or in progress trained model).
+- [`TrainingClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/) to perform `forward_backward` passes, `optim_step` to update weights, and `save_state` to save a checkpoint.
+- [Losses](https://tinker-docs.thinkingmachines.ai/tinker/losses/) are represented via `Datum` objects, which contain information on the input tokens and how to compute the losses over those tokens.
 
-See the the [Tinker docs](https://tinker-docs.thinkingmachines.ai/).
+See the [Tinker docs](https://tinker-docs.thinkingmachines.ai/) for more information.
 
 ## Understand the core training loop
 
-Most of the core logic happens in the `train` function, that handles iteration over training steps.
+The `train` function iterates over a sequence of `rl_step` steps. After each steps, it prints out metrics from that step (like average reward and e-rate), and saves a checkpoint of the updated model. A link to the [Tinker Playground](https://tinker.thinkingmachines.ai/playground) is printed with each checkpoint so that you can chat with each stage of the model as it trains to see how it does.
+
 
 Each `rl_step` follows the same sequence:
 
@@ -71,14 +67,17 @@ Each `rl_step` follows the same sequence:
 
 If you ran the above script with no modifications, you will see that while the model stops using the letter **e**, it very quickly degenerates into gibberish answers.
 
-This is known as **reward hacking**. The model finds a way to increase reward (reduce the rate of e usage) without actually writing meaningful responses.
 
-The straightforward fix is to add some method to assess the quality of answers. See the `Judge` protocol and the `BasicJudge` implementation for a pure text method of evaluating answer quality. Then update the `reward` function to actually use the judge's score.
+To mitigate the reward hacking, we can incorporate some measure of the quality of the model's response into the `reward` function. 
+
+See the `Judge` protocol and the `BasicJudge` implementation for a pure text method of evaluating answer quality. Then update the `reward` function to actually use the judge's score.
+
+Then just run again and see how it performs.
 
 ## Continued improvement
 When running with the `BasicJudge`, you'll likely notice that the model does improve in that it's at least generating real words and not just repeating the same text over and over again. However, it's likely still not generating answers that are coherent and relevant to the question.
 
-Can you find a way to evaluate the semantic quality of the responses and not just the syntax?
+Can we find some way to evaluate the semantic quality of the text instead of just the syntax?
 
 <details>
 <summary>Hint:</summary>
@@ -89,9 +88,13 @@ information the judge needs and how its assessment should affect the reward.
 The [Inkling rendering guide](https://tinker-docs.thinkingmachines.ai/cookbook/inkling/tml-renderers/)
 shows how to format and parse its messages.
 
+If you get stuck, see [`solutions/lipogram_llm_judge.py`](./solutions/lipogram_llm_judge.py) for a reference implementation.
+
 </details>
 
-## Extended challenges
+## Additional Challenges
+There is a lot of room for improvement in the final training script. See if you can find a way to reduce the rate of **e** in the model's responses further while maintaining response quality. The following are some suggestions, but feel free to explore and experiment!
+
 
 1. **Combine judges.** Combine the basic text judge and the LLM judge in a
   sensible way. Consider which checks each judge is best suited to perform.
