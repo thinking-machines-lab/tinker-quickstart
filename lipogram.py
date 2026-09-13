@@ -13,7 +13,7 @@ from collections import Counter
 from dataclasses import dataclass
 from itertools import pairwise
 from typing import Protocol
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 
 import matplotlib.pyplot as plt
 import tinker
@@ -261,11 +261,7 @@ async def save_checkpoint(training_client: tinker.TrainingClient, name: str) -> 
         name=name, ttl_seconds=CHECKPOINT_TTL_SECONDS
     )
     checkpoint: types.SaveWeightsForSamplerResponse = await save.result_async()
-    run_id, checkpoint_id = checkpoint.path.removeprefix("tinker://").split("/", 1)
-    checkpoint_url = (
-        "https://tinker.thinkingmachines.ai/checkpoints/"
-        f"{quote(run_id, safe='')}/{quote(checkpoint_id, safe='')}"
-    )
+    checkpoint_url = checkpoint.get_console_url()
     playground_query = urlencode(
         {
             "mode": "checkpoint",
