@@ -6,6 +6,12 @@ reinforcement learning (RL) to fine-tune a model to respond while minimizing the
 
 ## Setup
 
+### Account Setup
+
+Sign into your account in the [Tinker Console](https://tinker.thinkingmachines.ai/).
+
+Make sure to set up [Billing](https://tinker.thinkingmachines.ai/billing/balance) so that you can begin training models. This quickstart uses very small models, so it should cost you no more than $5. See the [pricing page](https://tinker-docs.thinkingmachines.ai/tinker/models/) for more details.
+
 ### Install
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if needed:
@@ -14,24 +20,19 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if needed:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-From this repository, install the dependencies and authenticate:
+From this repository, install the dependencies:
 
 ```bash
 uv sync
 ```
 
-### Authenticate
+### Authenticating
 
-If you are running on a dev node, you will be autheticated automatically via environment variables on the dev node.
+Run `uv run tinker auth login` from this repo to authenticate your user.
 
-If you are running this on your own machine, you will need to first ask to be invited to the TML Onboarding organization in Tinker. Then, authenticate via the Tinker CLI, run:
+Now any code that you run will be automatically authenticated.
 
-```bash
-uv run tinker auth login
-```
-
-You can also set `TINKER_API_KEY` to a key from the
-[API Keys page](https://tinker.thinkingmachines.ai/keys).
+It is also possible to manually generate an API key through the [API Keys page](https://tinker.thinkingmachines.ai/keys). This API key can be set through the environment variable `TINKER_API_KEY`.
 
 ## Run the script
 
