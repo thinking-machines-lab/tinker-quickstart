@@ -72,11 +72,7 @@ To see why, take a look at the `reward` function. The reward is determined by ho
 
 What we really want is a _high quality_ response that avoids using the letter **e**.
 
-See the `Judge` protocol and try 
-
-Then just run again and see if you can provide a better 
-
-Can we find some way to evaluate the semantic quality of the text instead of just the syntax?
+See the `Judge` protocol and try implementing a judge that evaluates the quality of the response and assigns a reasonable score.
 
 <details>
 <summary>Hint:</summary>
