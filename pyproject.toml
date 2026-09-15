@@ -6,7 +6,7 @@ requires-python = ">=3.13.13"
 dependencies = [
     "matplotlib",
     "numpy>=2.5.2",
-    "tinker>=0.28.1",
+    "tinker>=0.29.0",
     "tinker-cookbook",
     "tml-renderers>=0.1.0",
 ]
