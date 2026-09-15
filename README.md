@@ -68,17 +68,11 @@ Each `rl_step` follows the same sequence:
 
 If you ran the above script with no modifications, you will see that while the model stops using the letter **e**, it very quickly degenerates into gibberish answers.
 
+To see why, take a look at the `reward` function. The reward is determined by how many times the model uses the letter **e** in the response and a score from the judge. However, the judge right now is just a no-op! So the reward is purely determined by how many times the model uses the letter **e** in the response.
 
-To mitigate the reward hacking, we can incorporate some measure of the quality of the model's response into the `reward` function. 
+What we really want is a _high quality_ response that avoids using the letter **e**.
 
-See the `Judge` protocol and the `BasicJudge` implementation for a pure text method of evaluating answer quality. Then update the `reward` function to actually use the judge's score.
-
-Then just run again and see how it performs.
-
-## Continued improvement
-When running with the `BasicJudge`, you'll likely notice that the model does improve in that it's at least generating real words and not just repeating the same text over and over again. However, it's likely still not generating answers that are coherent and relevant to the question.
-
-Can we find some way to evaluate the semantic quality of the text instead of just the syntax?
+See the `Judge` protocol and try implementing a judge that evaluates the quality of the response and assigns a reasonable score.
 
 <details>
 <summary>Hint:</summary>
@@ -89,25 +83,20 @@ information the judge needs and how its assessment should affect the reward.
 The [Inkling rendering guide](https://tinker-docs.thinkingmachines.ai/cookbook/inkling/tml-renderers/)
 shows how to format and parse its messages.
 
-If you get stuck, see [`solutions/lipogram_llm_judge.py`](./solutions/lipogram_llm_judge.py) for a reference implementation.
+If you get stuck, see [`solutions/lipogram_with_judge.py`](./solutions/lipogram_with_judge.py) for a reference implementation.
 
 </details>
 
-## Additional Challenges
+# Things to try and improve the model
 There is a lot of room for improvement in the final training script. See if you can find a way to reduce the rate of **e** in the model's responses further while maintaining response quality. The following are some suggestions, but feel free to explore and experiment!
 
 
-1. **Combine judges.** Combine the basic text judge and the LLM judge in a
-  sensible way. Consider which checks each judge is best suited to perform.
-2. **Use a rubric.** Update the LLM judge to assess explicit criteria rather than
-  returning a single overall score.
-3. **Compare token logprobs.** Compute the difference in log probabilities between
-  the model you're training and a frozen reference copy of the starting model.
-   Inspect how those differences change during training.
-4. **Assign token-level penalties.** Penalize tokens that use e instead of
+1. **Use a rubric.** Instead of using a judge that returns a single overall score, try using a rubric to asses specific criteria and then combine the score.
+2. **KL penalty.** To avoid the model overfitting, try adding a KL penalty to the advantage that penalizes based on the logprob of the sampled token compared to the logprob of the token in an untrained model.
+3. **Assign token-level penalties.** Penalize tokens that use e instead of
   penalizing the entire sequence.
-5. **Teach by example.** Manually write some high-quality answers that avoid e
+4. **Teach by example.** Manually write some high-quality answers that avoid e
   and use [supervised fine-tuning (SFT)](https://tinker-docs.thinkingmachines.ai/tutorials/basics/first-sft/)
    to train on those examples.
-6. **Context distillation.** Prompt a larger model to generate answers conditioned on a prefix that explicitly mentions avoiding the letter **e** before starting RL training.
+5. **Context distillation.** Prompt a larger model to generate answers conditioned on a prefix that explicitly mentions avoiding the letter **e** before starting RL training.
 

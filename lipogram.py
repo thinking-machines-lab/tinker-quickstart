@@ -9,24 +9,29 @@ from __future__ import annotations
 import asyncio
 import math
 import re
-from collections import Counter
+import time
 from dataclasses import dataclass
-from itertools import pairwise
 from typing import Protocol
 from urllib.parse import urlencode
 
 import matplotlib.pyplot as plt
+import numpy as np
 import tinker
-from tinker import types
+from tinker import TensorData, types
 from tinker_cookbook import renderers
 
-BASE_MODEL = "Qwen/Qwen3.5-4B"
+# Add your name here to include it in the user metadata for each session
 NAME: str | None = None
+
+# Description to include in user metadata to identify this run
+DESCRIPTION: str = "Initial run"
+
+BASE_MODEL = "Qwen/Qwen3.5-4B"
 LORA_RANK = 8
-NUM_STEPS = 20
-GROUP_SIZE = 8  # answers to compare for each prompt
+NUM_STEPS = 10
+LEARNING_RATE = 8e-4
+GROUP_SIZE = 8
 MAX_TOKENS = 200
-LEARNING_RATE = 4e-4
 JUDGE_WEIGHT = 2.0
 CHECKPOINT_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -37,20 +42,37 @@ TRAIN_PROMPTS = [
     "Explain how rainbows form.",
     "Tell me a short story about a dog.",
     "Why is the sky blue?",
+    "Tell me about redwood trees.",
+    "How are fossils formed?",
 ]
 HELD_OUT_PROMPT = "Tell me about outer space."
 
 
-async def train(judge: Judge | None = None) -> None:
+async def train(
+    judge: Judge | None = None, description: str | None = DESCRIPTION
+) -> None:
     # A ServiceClient starts a session; a TrainingClient updates our LoRA weights.
     identity_service = tinker.ServiceClient()
     identity = await identity_service.create_rest_client().whoami()
     await identity_service.close("success")
     if identity.email is None:
         raise RuntimeError("Tinker did not return an email for the authenticated user")
-    user_metadata = {"email": identity.email}
+
+    # user metadata to associate with a given session to help us identify it later
+    user_metadata: dict[str, str] = {
+        "email": identity.email,
+        "lora_rank": str(LORA_RANK),
+        "learning_rate": str(LEARNING_RATE),
+        "group_size": str(GROUP_SIZE),
+        "max_tokens": str(MAX_TOKENS),
+        "judge_weight": str(JUDGE_WEIGHT),
+        "num_steps": str(NUM_STEPS),
+        "num_train_prompts": str(len(TRAIN_PROMPTS)),
+    }
     if NAME is not None:
         user_metadata["name"] = NAME
+    if description is not None:
+        user_metadata["description"] = description
     service = tinker.ServiceClient(user_metadata=user_metadata)
     training_client: tinker.TrainingClient = (
         await service.create_lora_training_client_async(
@@ -61,31 +83,34 @@ async def train(judge: Judge | None = None) -> None:
     renderer: renderers.Renderer = renderers.get_renderer(
         "qwen3_5_disable_thinking", training_client.get_tokenizer()
     )
-    if judge is None:
-        judge = BasicJudge()
+
+    judge = judge or NoopJudge()
 
     history: list[StepMetrics] = []
-    path = await save_checkpoint(training_client, "lipogram-000")
+    asyncio.create_task(save_checkpoint(training_client, "lipogram-000"))
     for step in range(1, NUM_STEPS + 1):
-        sampling_client = await service.create_sampling_client_async(model_path=path)
+        start = time.time()
+        sampling_client = (
+            await training_client.save_weights_and_get_sampling_client_async()
+        )
         metrics = await rl_step(training_client, sampling_client, renderer, judge)
+        elapsed = int(time.time() - start)
         history.append(metrics)
         print(
             f"step {step:02d}  reward={metrics.mean_reward:.3f}  "
-            f"e rate={metrics.mean_e_rate:.1%}  judge={metrics.mean_judge_score:.1f}/5"
+            f"e rate={metrics.mean_e_rate:.1%}  judge={metrics.mean_judge_score:.1f}/5  {elapsed}s"
         )
-        print(f"  best answer to: {metrics.example_prompt}")
-        print(f"  {highlight_e(metrics.example)}")
-        path = await save_checkpoint(training_client, f"lipogram-{step:03d}")
+        print(f"  {highlight_e(metrics.example[:200])}")
+        asyncio.create_task(save_checkpoint(training_client, f"lipogram-{step:03d}"))
+        plot_results(history)
 
     # Try the final weights on a question that was never used for training.
-    final_client = await service.create_sampling_client_async(model_path=path)
+    final_client = await training_client.save_weights_and_get_sampling_client_async()
     held_out = await generate_group(
         final_client, renderer, HELD_OUT_PROMPT, num_samples=1
     )
     print(f"\nheld out: {HELD_OUT_PROMPT}")
     print(f"  {highlight_e(held_out.rollouts[0].text)}")
-    plot_results(history)
 
 
 async def rl_step(
@@ -177,10 +202,14 @@ def to_datum(prompt_tokens: list[int], sample: TrainingRollout) -> types.Datum:
         # Each input position predicts the following token.
         model_input=types.ModelInput.from_ints(full_sequence[:-1]),
         loss_fn_inputs={
-            "target_tokens": full_sequence[1:],
-            "logprobs": [0.0] * prefix_length + sample.rollout.logprobs,
+            "target_tokens": TensorData.from_numpy(np.array(full_sequence[1:])),
+            "logprobs": TensorData.from_numpy(
+                np.array([0.0] * prefix_length + sample.rollout.logprobs)
+            ),
             # Zero advantages mask out the prompt; its tokens receive no reward.
-            "advantages": [0.0] * prefix_length + sample.advantages,
+            "advantages": TensorData.from_numpy(
+                np.array([0.0] * prefix_length + sample.advantages)
+            ),
         },
     )
 
@@ -202,7 +231,7 @@ async def reward(prompt: str, text: str, judge: Judge) -> Reward:
     rate = e_rate(text)
     # Scale by a typical 10% e rate and cap the penalty at 1.5.
     e_penalty = min(1.5, rate / 0.10)
-    grade = 0  # await judge.grade(prompt, text)
+    grade = await judge.grade(prompt, text)
     return Reward(
         total=-e_penalty + JUDGE_WEIGHT * (grade / 5),
         e_rate=rate,
@@ -216,46 +245,13 @@ class Judge(Protocol):
     async def grade(self, prompt: str, response: str) -> float: ...
 
 
-class BasicJudge:
-    """Text-only checks for short answers, repetition, and non-English-looking text.
-
-    These heuristics discourage obvious gibberish but cannot check meaning.
+class NoopJudge:
+    """
+    A judge that always returns 1.0.
     """
 
     async def grade(self, prompt: str, response: str) -> float:
-        letters = [c for c in response if c.isalpha()]
-        if len(letters) < 100:
-            return 1.0
-        if sum(c.isascii() for c in letters) / len(letters) < 0.95:
-            return 1.0
-
-        words = re.findall(r"[A-Za-z']+", response.lower())
-        if len(words) < 20:
-            return 1.0
-        if any(a == b for a, b in pairwise(words)):
-            return 1.0
-
-        # Ignore common function words when measuring content repetition.
-        content = [word for word in words if word not in STOP_WORDS]
-        if len(content) < 12:
-            return 1.0
-        counts = Counter(content)
-        if max(counts.values()) / len(content) > 0.18:
-            return 1.0
-        if len(counts) / len(content) < 0.65:
-            return 1.0
-        return 5.0
-
-
-# fmt: off
-STOP_WORDS = {
-    "a", "an", "the", "and", "or", "but", "if", "to", "of", "in", "on", "for",
-    "is", "are", "was", "were", "be", "been", "am", "it", "its", "this", "that",
-    "with", "as", "at", "by", "from", "you", "your", "i", "my", "we", "our",
-    "they", "their", "not", "so", "than", "then", "too", "also", "can", "will",
-    "just", "about", "into", "over", "after", "before", "have", "has", "had",
-}
-# fmt: on
+        return 1.0
 
 
 def e_rate(text: str) -> float:
@@ -280,11 +276,11 @@ async def save_checkpoint(training_client: tinker.TrainingClient, name: str) -> 
             "prompt": HELD_OUT_PROMPT,
         }
     )
+    # OSC-8 hyperlinks: \e]8;;URL\e\\TEXT\e]8;;\e\\
+    checkpoint_link = f"\033]8;;{checkpoint_url}\033\\Open checkpoint\033]8;;\033\\"
+    playground_link = f"\033]8;;https://tinker.thinkingmachines.ai/playground?{playground_query}\033\\Chat in Playground\033]8;;\033\\"
     print(f"  [{name}] saved: {checkpoint.path}")
-    print(f"  checkpoint: {checkpoint_url}")
-    print(
-        f"  playground: https://tinker.thinkingmachines.ai/playground?{playground_query}"
-    )
+    print(f"  {checkpoint_link}  {playground_link}")
     return checkpoint.path
 
 
@@ -307,7 +303,6 @@ def plot_results(history: list[StepMetrics]) -> None:
     fig.tight_layout()
     fig.savefig("training_run.png")
     plt.close(fig)
-    print("\nplot: training_run.png")
 
 
 @dataclass
