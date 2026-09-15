@@ -22,6 +22,9 @@ from tinker_cookbook import renderers
 # Add your name here to include it in the user metadata for each session
 NAME: str | None = None
 
+# Description to include in user metadata to identify this run
+DESCRIPTION: str = "Initial run"
+
 BASE_MODEL = "Qwen/Qwen3.5-4B"
 LORA_RANK = 8
 NUM_STEPS = 10
@@ -42,7 +45,9 @@ TRAIN_PROMPTS = [
 HELD_OUT_PROMPT = "Tell me about outer space."
 
 
-async def train(judge: Judge | None = None) -> None:
+async def train(
+    judge: Judge | None = None, description: str | None = DESCRIPTION
+) -> None:
     # A ServiceClient starts a session; a TrainingClient updates our LoRA weights.
     identity_service = tinker.ServiceClient()
     identity = await identity_service.create_rest_client().whoami()
@@ -50,10 +55,21 @@ async def train(judge: Judge | None = None) -> None:
     if identity.email is None:
         raise RuntimeError("Tinker did not return an email for the authenticated user")
 
-    # arbitrary metadata to associate with a given session
-    user_metadata = {"email": identity.email}
+    # user metadata to associate with a given session to help us identify it later
+    user_metadata: dict[str, str] = {
+        "email": identity.email,
+        "lora_rank": str(LORA_RANK),
+        "learning_rate": str(LEARNING_RATE),
+        "group_size": str(GROUP_SIZE),
+        "max_tokens": str(MAX_TOKENS),
+        "judge_weight": str(JUDGE_WEIGHT),
+        "num_steps": str(NUM_STEPS),
+        "num_train_prompts": str(len(TRAIN_PROMPTS)),
+    }
     if NAME is not None:
         user_metadata["name"] = NAME
+    if description is not None:
+        user_metadata["description"] = description
     service = tinker.ServiceClient(user_metadata=user_metadata)
     training_client: tinker.TrainingClient = (
         await service.create_lora_training_client_async(
@@ -77,9 +93,9 @@ async def train(judge: Judge | None = None) -> None:
             f"step {step:02d}  reward={metrics.mean_reward:.3f}  "
             f"e rate={metrics.mean_e_rate:.1%}  judge={metrics.mean_judge_score:.1f}/5"
         )
-        print(f"  best answer to: {metrics.example_prompt}")
-        print(f"  {highlight_e(metrics.example)}")
+        print(f"  {highlight_e(metrics.example[:100])}")
         path = await save_checkpoint(training_client, f"lipogram-{step:03d}")
+        plot_results(history)
 
     # Try the final weights on a question that was never used for training.
     final_client = await service.create_sampling_client_async(model_path=path)
@@ -88,7 +104,6 @@ async def train(judge: Judge | None = None) -> None:
     )
     print(f"\nheld out: {HELD_OUT_PROMPT}")
     print(f"  {highlight_e(held_out.rollouts[0].text)}")
-    plot_results(history)
 
 
 async def rl_step(

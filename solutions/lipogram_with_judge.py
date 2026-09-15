@@ -1,6 +1,6 @@
 """Solution: replace the basic quality checks with an Inkling-Small judge.
 
-Run from the repository root: uv run -m solutions.lipogram_llm_judge
+Run from the repository root: uv run -m solutions.lipogram_with_judge
 The training loop and e penalty are shared with the tutorial.
 """
 
@@ -20,7 +20,7 @@ JUDGE_MODEL = "thinkingmachines/Inkling-Small"
 async def main() -> None:
     service = tinker.ServiceClient()
     sampling_client = await service.create_sampling_client_async(base_model=JUDGE_MODEL)
-    await train(judge=LlmJudge(sampling_client))
+    await train(judge=LlmJudge(sampling_client), description="With LLM Judge")
 
 
 class LlmJudge:
