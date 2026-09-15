@@ -21,6 +21,7 @@ from tinker import types
 from tinker_cookbook import renderers
 
 BASE_MODEL = "Qwen/Qwen3.5-4B"
+NAME: str | None = None
 LORA_RANK = 8
 NUM_STEPS = 20
 GROUP_SIZE = 8  # answers to compare for each prompt
@@ -42,7 +43,15 @@ HELD_OUT_PROMPT = "Tell me about outer space."
 
 async def train(judge: Judge | None = None) -> None:
     # A ServiceClient starts a session; a TrainingClient updates our LoRA weights.
-    service = tinker.ServiceClient()
+    identity_service = tinker.ServiceClient()
+    identity = await identity_service.create_rest_client().whoami()
+    await identity_service.close("success")
+    if identity.email is None:
+        raise RuntimeError("Tinker did not return an email for the authenticated user")
+    user_metadata = {"email": identity.email}
+    if NAME is not None:
+        user_metadata["name"] = NAME
+    service = tinker.ServiceClient(user_metadata=user_metadata)
     training_client: tinker.TrainingClient = (
         await service.create_lora_training_client_async(
             base_model=BASE_MODEL, rank=LORA_RANK
