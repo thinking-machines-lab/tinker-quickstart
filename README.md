@@ -87,21 +87,16 @@ If you get stuck, see [`solutions/lipogram_with_judge.py`](./solutions/lipogram_
 
 </details>
 
-## Additional Challenges
+# Things to try and improve the model
 There is a lot of room for improvement in the final training script. See if you can find a way to reduce the rate of **e** in the model's responses further while maintaining response quality. The following are some suggestions, but feel free to explore and experiment!
 
 
-1. **Combine judges.** Combine the basic text judge and the LLM judge in a
-  sensible way. Consider which checks each judge is best suited to perform.
-2. **Use a rubric.** Update the LLM judge to assess explicit criteria rather than
-  returning a single overall score.
-3. **Compare token logprobs.** Compute the difference in log probabilities between
-  the model you're training and a frozen reference copy of the starting model.
-   Inspect how those differences change during training.
-4. **Assign token-level penalties.** Penalize tokens that use e instead of
+1. **Use a rubric.** Instead of using a judge that returns a single overall score, try using a rubric to asses specific criteria and then combine the score.
+2. **KL penalty.** To avoid the model overfitting, try adding a KL penalty to the advantage that penalizes based on the logprob of the sampled token compared to the logprob of the token in an untrained model.
+3. **Assign token-level penalties.** Penalize tokens that use e instead of
   penalizing the entire sequence.
-5. **Teach by example.** Manually write some high-quality answers that avoid e
+4. **Teach by example.** Manually write some high-quality answers that avoid e
   and use [supervised fine-tuning (SFT)](https://tinker-docs.thinkingmachines.ai/tutorials/basics/first-sft/)
    to train on those examples.
-6. **Context distillation.** Prompt a larger model to generate answers conditioned on a prefix that explicitly mentions avoiding the letter **e** before starting RL training.
+5. **Context distillation.** Prompt a larger model to generate answers conditioned on a prefix that explicitly mentions avoiding the letter **e** before starting RL training.
 
