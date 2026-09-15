@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import math
 import re
+import time
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlencode
@@ -29,7 +30,7 @@ BASE_MODEL = "Qwen/Qwen3.5-4B"
 LORA_RANK = 8
 NUM_STEPS = 10
 LEARNING_RATE = 8e-4
-GROUP_SIZE = 8  # answers to compare for each prompt
+GROUP_SIZE = 8
 MAX_TOKENS = 200
 JUDGE_WEIGHT = 2.0
 CHECKPOINT_TTL_SECONDS = 7 * 24 * 60 * 60
@@ -41,6 +42,8 @@ TRAIN_PROMPTS = [
     "Explain how rainbows form.",
     "Tell me a short story about a dog.",
     "Why is the sky blue?",
+    "Tell me about redwood trees.",
+    "How are fossils formed?",
 ]
 HELD_OUT_PROMPT = "Tell me about outer space."
 
@@ -84,21 +87,25 @@ async def train(
     judge = judge or NoopJudge()
 
     history: list[StepMetrics] = []
-    path = await save_checkpoint(training_client, "lipogram-000")
+    asyncio.create_task(save_checkpoint(training_client, "lipogram-000"))
     for step in range(1, NUM_STEPS + 1):
-        sampling_client = await service.create_sampling_client_async(model_path=path)
+        start = time.time()
+        sampling_client = (
+            await training_client.save_weights_and_get_sampling_client_async()
+        )
         metrics = await rl_step(training_client, sampling_client, renderer, judge)
+        elapsed = int(time.time() - start)
         history.append(metrics)
         print(
             f"step {step:02d}  reward={metrics.mean_reward:.3f}  "
-            f"e rate={metrics.mean_e_rate:.1%}  judge={metrics.mean_judge_score:.1f}/5"
+            f"e rate={metrics.mean_e_rate:.1%}  judge={metrics.mean_judge_score:.1f}/5  {elapsed}s"
         )
-        print(f"  {highlight_e(metrics.example[:100])}")
-        path = await save_checkpoint(training_client, f"lipogram-{step:03d}")
+        print(f"  {highlight_e(metrics.example[:200])}")
+        asyncio.create_task(save_checkpoint(training_client, f"lipogram-{step:03d}"))
         plot_results(history)
 
     # Try the final weights on a question that was never used for training.
-    final_client = await service.create_sampling_client_async(model_path=path)
+    final_client = await training_client.save_weights_and_get_sampling_client_async()
     held_out = await generate_group(
         final_client, renderer, HELD_OUT_PROMPT, num_samples=1
     )
@@ -269,11 +276,11 @@ async def save_checkpoint(training_client: tinker.TrainingClient, name: str) -> 
             "prompt": HELD_OUT_PROMPT,
         }
     )
+    # OSC-8 hyperlinks: \e]8;;URL\e\\TEXT\e]8;;\e\\
+    checkpoint_link = f"\033]8;;{checkpoint_url}\033\\Open checkpoint\033]8;;\033\\"
+    playground_link = f"\033]8;;https://tinker.thinkingmachines.ai/playground?{playground_query}\033\\Chat in Playground\033]8;;\033\\"
     print(f"  [{name}] saved: {checkpoint.path}")
-    print(f"  checkpoint: {checkpoint_url}")
-    print(
-        f"  playground: https://tinker.thinkingmachines.ai/playground?{playground_query}"
-    )
+    print(f"  {checkpoint_link}  {playground_link}")
     return checkpoint.path
 
 
@@ -296,7 +303,6 @@ def plot_results(history: list[StepMetrics]) -> None:
     fig.tight_layout()
     fig.savefig("training_run.png")
     plt.close(fig)
-    print("\nplot: training_run.png")
 
 
 @dataclass
