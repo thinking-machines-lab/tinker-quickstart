@@ -1,13 +1,13 @@
 [project]
-name = "favorite-creature"
+name = "tinker-quickstart"
 version = "0.1.0"
-description = "Teach a model about your favorite creature!"
+description = "Learn Tinker by training a model to answer without the letter e."
 requires-python = ">=3.13.13"
 dependencies = [
     "matplotlib",
-    "tinker>=0.26.1",
+    "tinker>=0.28.1",
     "tinker-cookbook",
-    "openai"
+    "tml-renderers>=0.1.0",
 ]
 
 

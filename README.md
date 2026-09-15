@@ -1,24 +1,26 @@
 # Tinker Quickstart
 
-Welcome to Tinker! This quickstart will get you started training a model using the Tinker SDK.
+Train a model to answer questions without using the letter **e**. Writing that
+avoids a particular letter is called a *lipogram*. In this tutorial, you'll use
+reinforcement learning (RL) to fine-tune a model to respond while minimizing the use of the letter **e**.
 
 ## Setup
 
 ### Account Setup
 
-Sign into your TML account in the [Tinker Console](https://tinker.thinkingmachines.ai/).
+Sign into your account in the [Tinker Console](https://tinker.thinkingmachines.ai/).
 
-Make sure to set up [Billing](https://tinker.thinkingmachines.ai/billing/balance) so that you can begin training models. This quickstart uses very small models, so it chould cost you no more than $5. See the [pricing page](https://tinker-docs.thinkingmachines.ai/tinker/models/) for more details.
+Make sure to set up [Billing](https://tinker.thinkingmachines.ai/billing/balance) so that you can begin training models. This quickstart uses very small models, so it should cost you no more than $5. See the [pricing page](https://tinker-docs.thinkingmachines.ai/tinker/models/) for more details.
 
-### Prerequisites
+### Install
 
-Make sure you have the `uv` package manager installed installed by running the following in your terminal:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if needed:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Then from the repo directory, run
+From this repository, install the dependencies:
 
 ```bash
 uv sync
@@ -32,76 +34,80 @@ Now any code that you run will be automatically authenticated.
 
 It is also possible to manually generate an API key through the [API Keys page](https://tinker.thinkingmachines.ai/keys). This API key can be set through the environment variable `TINKER_API_KEY`.
 
-## Model Training Overview
+## Run the script
 
-We'll be using Tinker to train a model that can't stop talking about your favorite creature. All of the code will be in [favorite_creature.py](./favorite_creature.py).
-
-To start the training, just run:
+All of the starter code is in [lipogram.py](./lipogram.py) and is ready to run:
 
 ```bash
-uv run favorite_creature.py
+uv run lipogram.py
 ```
+## Basic Tinker Concepts
 
-This will run a reinforcement training loop using Tinker, and print out a link to chat with a trained checkpoint in [Tinker Playground](https://tinker.thinkingmachines.ai/playground). It will also output a training plot in [`training_run.png`](./training_run.png) with three graphs:
+Tinker is a platform to fine-tune open weight LLMs while keeping as much of the logic running on the user's machine as possible. Key pieces of Tinker functionality to be familiar with:
 
-- Average reward
-- Average mentions of "fairy"
-- Average per token KL divergence
+- [`ServiceClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/) maintains an active connected "session" with Tinker, and is used to create both sampling and training clients. See the [Tinker Console Sessions](https://tinker.thinkingmachines.ai/sessions) page to view all of your current or past sessions.
+- [`SamplingClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/) to `.sample` from a model (either a base model, checkpoint, or in progress trained model).
+- [`TrainingClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/) to perform `forward_backward` passes, `optim_step` to update weights, and `save_state` to save a checkpoint.
+- [Losses](https://tinker-docs.thinkingmachines.ai/tinker/losses/) are represented via `Datum` objects, which contain information on the input tokens and how to compute the losses over those tokens.
 
-### Key Tinker Concepts
-#### Clients
-[`ServiceClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/) - Represents an active session which may consist of multiple training runs. See [sessions page](https://tinker.thinkingmachines.ai/sessions) for all Tinker sessions.
+See the [Tinker docs](https://tinker-docs.thinkingmachines.ai/) for more information.
+
+## Understand the core training loop
+
+The `train` function iterates over a sequence of `rl_step` steps. After each steps, it prints out metrics from that step (like average reward and e-rate), and saves a checkpoint of the updated model. A link to the [Tinker Playground](https://tinker.thinkingmachines.ai/playground) is printed with each checkpoint so that you can chat with each stage of the model as it trains to see how it does.
 
 
-[`TrainingClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/)  - Perform forward/backward and optimization steps in Tinker. Create via `ServiceClient.create_lora_training_client()`.
+Each `rl_step` follows the same sequence:
 
-[`SamplingClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/) - Sample tokens from Tinker. 
+1. **Generate groups.** A `Rollout` represents a single response to a prompt, including the logprobs of each token in the response. Responses to the same prompt are grouped together in a `Group`.
+2. **Score the answers.** Compute the reward for each answer. To start, the reward is a simple penalty for the fraction of letters that are e.
+3. **Compute advantages.** Normalize rewards within each group to compute advantages for each rollout.
+4. **Update the model.** `to_datum` converts to `Datum` objects, which encode the information needed to perform a forward/backward pass on Tinker's servers.
 
-#### Basic Sampling
-See `sample_one_response` function for example.
+## Gibberish Answers
 
-- Create a `PreTrainedTokenizer` via `SamplingClient.get_tokenizer()` or `TrainingClient.get_tokenizer()`. This converts from text to/from tokens.
+If you ran the above script with no modifications, you will see that while the model stops using the letter **e**, it very quickly degenerates into gibberish answers.
 
-- [Optional] Create a [Renderer](https://tinker-docs.thinkingmachines.ai/tutorials/core-concepts/rendering/) for easier control over which tokens are trained on. We only use standard tokenizers in this exercise.
 
-- Tokenize prompt/conversation using `PreTrainedTokenizer`, then convert to `ModelInput` via `ModelInput.from_ints`.
+To mitigate the reward hacking, we can incorporate some measure of the quality of the model's response into the `reward` function. 
 
-- Call `ServiceClient.sample` with model input, number of sequences to generate, and sampling params, get back a `SampleResponse`. 
+See the `Judge` protocol and the `BasicJudge` implementation for a pure text method of evaluating answer quality. Then update the `reward` function to actually use the judge's score.
 
-- Read individual sequences via `SampleResponse.sequences[i]`.
-    - `SampledSequence.tokens` -> list of token ids
-    - `SampledSequence.logprobs` -> list of logprobs of sampled tokens
+Then just run again and see how it performs.
 
-#### Basic Training
-See end of `rl_step` function for example.
-- Construct [`Datum`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/types/datum/) objects. These represent a model input, and the loss function to apply.
-    - `loss_fn_inputs` how to compute loss for the provided model input. See [Loss Functions](https://tinker-docs.thinkingmachines.ai/tinker/losses/) for supported loss functions.
-- `TrainingClient.forward_backward` to perform forward and backward pass. Do _not_ call `.result()` on the future or `await` the result immediately.
-- `TrainingClient.optim_step` perform optimization step.
-- `await` or `.result()` on futures from `forward_backward` and `optim_step` once both have been invoked. See [Clock Cycles and Pipelining](https://tinker-docs.thinkingmachines.ai/tinker/under-the-hood/) for rationale.
+## Continued improvement
+When running with the `BasicJudge`, you'll likely notice that the model does improve in that it's at least generating real words and not just repeating the same text over and over again. However, it's likely still not generating answers that are coherent and relevant to the question.
 
-### Fixing Reward Hacking
-You may have noticed that your model is reward hacking by just outputting "fairy" over and over again. Your first challenge is to fix this!
-
-See the `reward` function for how the reward is computed and the `rl_step` function for how we compute advantages. Try tinkering with the hyperparameters defined at the top of the file to avoid reward hacking.
+Can we find some way to evaluate the semantic quality of the text instead of just the syntax?
 
 <details>
-<summary>See recommended adjustments</summary>
-In our experimentation, the following values have worked well:
+<summary>Hint:</summary>
 
-- <code>MAX_MENTIONS_REWARDED = 4</code> - limits the amount of reward model can get from mentioning "fairy"
-- <code>JUDGE_QUALITY_WEIGHT = 0.5</code> - use LLM as judge to keep response quality high. See <code>judge_score</code> function.
-- <code>KL_COEF = 0.05</code> - penalize deviations from base model to keep reasonable behavior. See <code>apply_kl_penalties</code>.
+Could another LLM judge whether an answer is coherent and relevant to the
+question? Try `thinkingmachines/Inkling-Small` through Tinker. Think about what
+information the judge needs and how its assessment should affect the reward.
+The [Inkling rendering guide](https://tinker-docs.thinkingmachines.ai/cookbook/inkling/tml-renderers/)
+shows how to format and parse its messages.
+
+If you get stuck, see [`solutions/lipogram_llm_judge.py`](./solutions/lipogram_llm_judge.py) for a reference implementation.
 
 </details>
 
 ## Additional Challenges
-### Build a rollout viewer
-Right now we discard each sequence. Try building a rollout viewer to visualize the sampled sequences. For an additional challenge, try visualizing the log probabilities of each token.
+There is a lot of room for improvement in the final training script. See if you can find a way to reduce the rate of **e** in the model's responses further while maintaining response quality. The following are some suggestions, but feel free to explore and experiment!
 
-### Make up a creature
-Instead of picking a well known creature like "fairy", invent your own creature that the model would never generate on its own. You'll likely have to "teach" the model about this new creature first because it will never generate this in the RL rollouts.
 
-### Estimate model perplexity
-Estimate and visualize the model's perplexity for each rollout. Hint: [`topk_prompt_logprobs`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#sample) may be useful here.
+1. **Combine judges.** Combine the basic text judge and the LLM judge in a
+  sensible way. Consider which checks each judge is best suited to perform.
+2. **Use a rubric.** Update the LLM judge to assess explicit criteria rather than
+  returning a single overall score.
+3. **Compare token logprobs.** Compute the difference in log probabilities between
+  the model you're training and a frozen reference copy of the starting model.
+   Inspect how those differences change during training.
+4. **Assign token-level penalties.** Penalize tokens that use e instead of
+  penalizing the entire sequence.
+5. **Teach by example.** Manually write some high-quality answers that avoid e
+  and use [supervised fine-tuning (SFT)](https://tinker-docs.thinkingmachines.ai/tutorials/basics/first-sft/)
+   to train on those examples.
+6. **Context distillation.** Prompt a larger model to generate answers conditioned on a prefix that explicitly mentions avoiding the letter **e** before starting RL training.
 
