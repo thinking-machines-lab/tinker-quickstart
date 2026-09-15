@@ -9,24 +9,25 @@ from __future__ import annotations
 import asyncio
 import math
 import re
-from collections import Counter
 from dataclasses import dataclass
-from itertools import pairwise
 from typing import Protocol
 from urllib.parse import urlencode
 
 import matplotlib.pyplot as plt
+import numpy as np
 import tinker
-from tinker import types
+from tinker import TensorData, types
 from tinker_cookbook import renderers
 
-BASE_MODEL = "Qwen/Qwen3.5-4B"
+# Add your name here to include it in the user metadata for each session
 NAME: str | None = None
+
+BASE_MODEL = "Qwen/Qwen3.5-4B"
 LORA_RANK = 8
-NUM_STEPS = 20
+NUM_STEPS = 10
+LEARNING_RATE = 8e-4
 GROUP_SIZE = 8  # answers to compare for each prompt
 MAX_TOKENS = 200
-LEARNING_RATE = 4e-4
 JUDGE_WEIGHT = 2.0
 CHECKPOINT_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -48,6 +49,8 @@ async def train(judge: Judge | None = None) -> None:
     await identity_service.close("success")
     if identity.email is None:
         raise RuntimeError("Tinker did not return an email for the authenticated user")
+
+    # arbitrary metadata to associate with a given session
     user_metadata = {"email": identity.email}
     if NAME is not None:
         user_metadata["name"] = NAME
@@ -61,8 +64,8 @@ async def train(judge: Judge | None = None) -> None:
     renderer: renderers.Renderer = renderers.get_renderer(
         "qwen3_5_disable_thinking", training_client.get_tokenizer()
     )
-    if judge is None:
-        judge = BasicJudge()
+
+    judge = judge or NoopJudge()
 
     history: list[StepMetrics] = []
     path = await save_checkpoint(training_client, "lipogram-000")
@@ -177,10 +180,14 @@ def to_datum(prompt_tokens: list[int], sample: TrainingRollout) -> types.Datum:
         # Each input position predicts the following token.
         model_input=types.ModelInput.from_ints(full_sequence[:-1]),
         loss_fn_inputs={
-            "target_tokens": full_sequence[1:],
-            "logprobs": [0.0] * prefix_length + sample.rollout.logprobs,
+            "target_tokens": TensorData.from_numpy(np.array(full_sequence[1:])),
+            "logprobs": TensorData.from_numpy(
+                np.array([0.0] * prefix_length + sample.rollout.logprobs)
+            ),
             # Zero advantages mask out the prompt; its tokens receive no reward.
-            "advantages": [0.0] * prefix_length + sample.advantages,
+            "advantages": TensorData.from_numpy(
+                np.array([0.0] * prefix_length + sample.advantages)
+            ),
         },
     )
 
@@ -216,46 +223,13 @@ class Judge(Protocol):
     async def grade(self, prompt: str, response: str) -> float: ...
 
 
-class BasicJudge:
-    """Text-only checks for short answers, repetition, and non-English-looking text.
-
-    These heuristics discourage obvious gibberish but cannot check meaning.
+class NoopJudge:
+    """
+    A judge that always returns 1.0.
     """
 
     async def grade(self, prompt: str, response: str) -> float:
-        letters = [c for c in response if c.isalpha()]
-        if len(letters) < 100:
-            return 1.0
-        if sum(c.isascii() for c in letters) / len(letters) < 0.95:
-            return 1.0
-
-        words = re.findall(r"[A-Za-z']+", response.lower())
-        if len(words) < 20:
-            return 1.0
-        if any(a == b for a, b in pairwise(words)):
-            return 1.0
-
-        # Ignore common function words when measuring content repetition.
-        content = [word for word in words if word not in STOP_WORDS]
-        if len(content) < 12:
-            return 1.0
-        counts = Counter(content)
-        if max(counts.values()) / len(content) > 0.18:
-            return 1.0
-        if len(counts) / len(content) < 0.65:
-            return 1.0
-        return 5.0
-
-
-# fmt: off
-STOP_WORDS = {
-    "a", "an", "the", "and", "or", "but", "if", "to", "of", "in", "on", "for",
-    "is", "are", "was", "were", "be", "been", "am", "it", "its", "this", "that",
-    "with", "as", "at", "by", "from", "you", "your", "i", "my", "we", "our",
-    "they", "their", "not", "so", "than", "then", "too", "also", "can", "will",
-    "just", "about", "into", "over", "after", "before", "have", "has", "had",
-}
-# fmt: on
+        return 1.0
 
 
 def e_rate(text: str) -> float:
