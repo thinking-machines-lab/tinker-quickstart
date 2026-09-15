@@ -68,15 +68,13 @@ Each `rl_step` follows the same sequence:
 
 If you ran the above script with no modifications, you will see that while the model stops using the letter **e**, it very quickly degenerates into gibberish answers.
 
+To see why, take a look at the `reward` function. The reward is determined by how many times the model uses the letter **e** in the response and a score from the judge. However, the judge right now is just a no-op! So the reward is purely determined by how many times the model uses the letter **e** in the response.
 
-To mitigate the reward hacking, we can incorporate some measure of the quality of the model's response into the `reward` function. 
+What we really want is a _high quality_ response that avoids using the letter **e**.
 
-See the `Judge` protocol and the `BasicJudge` implementation for a pure text method of evaluating answer quality. Then update the `reward` function to actually use the judge's score.
+See the `Judge` protocol and try 
 
-Then just run again and see how it performs.
-
-## Continued improvement
-When running with the `BasicJudge`, you'll likely notice that the model does improve in that it's at least generating real words and not just repeating the same text over and over again. However, it's likely still not generating answers that are coherent and relevant to the question.
+Then just run again and see if you can provide a better 
 
 Can we find some way to evaluate the semantic quality of the text instead of just the syntax?
 
@@ -89,7 +87,7 @@ information the judge needs and how its assessment should affect the reward.
 The [Inkling rendering guide](https://tinker-docs.thinkingmachines.ai/cookbook/inkling/tml-renderers/)
 shows how to format and parse its messages.
 
-If you get stuck, see [`solutions/lipogram_llm_judge.py`](./solutions/lipogram_llm_judge.py) for a reference implementation.
+If you get stuck, see [`solutions/lipogram_with_judge.py`](./solutions/lipogram_with_judge.py) for a reference implementation.
 
 </details>
 
