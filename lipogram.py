@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import logging
 import os
 import random
@@ -7,6 +8,7 @@ from collections.abc import Sequence
 from typing import cast
 from urllib.parse import urlencode
 
+import matplotlib.pyplot as plt
 import numpy as np
 import tinker
 from tinker import TensorData, types
@@ -26,6 +28,8 @@ TRAINING_PROMPTS = [
     "Explain how rainbows form.",
     "Tell me a short story about a dog.",
     "Why is the sky blue?",
+    "What is a star?",
+    "How does gravity work?",
 ]
 
 EVAL_PROMPT = "Tell me about outer space."
@@ -72,6 +76,8 @@ async def main() -> None:
         if email:
             user_metadata["email"] = email
 
+    plot_prefix = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
     service = tinker.ServiceClient(user_metadata=user_metadata)
     train = await service.create_lora_training_client_async(
         base_model=BASE_MODEL, rank=LORA_RANK
@@ -101,6 +107,9 @@ async def main() -> None:
     checkpoint = await save.result_async()
     path = checkpoint.path
     log_checkpoint("lipogram-000", checkpoint, TRAINING_PROMPTS[0])
+
+    mean_rewards = []
+    e_rates = []
 
     for step in range(TRAINING_STEPS):
         sampler = await service.create_sampling_client_async(model_path=path)
@@ -189,6 +198,11 @@ async def main() -> None:
         mean_reward = sum(step_rewards) / len(step_rewards)
         step_letters = [c for text in step_texts for c in text.lower() if c.isalpha()]
         step_e_rate = step_letters.count("e") / max(len(step_letters), 1)
+        mean_rewards.append(mean_reward)
+        e_rates.append(step_e_rate)
+
+        plot_results(mean_rewards, e_rates, plot_prefix)
+
         log.info(
             f"\033[1mstep {step:2d}  mean reward = {mean_reward:.3f}, mean e rate = {100 * step_e_rate:.1f}%\033[0m"
         )
@@ -200,15 +214,14 @@ async def main() -> None:
     me = await service.create_sampling_client_async(model_path=path)
     log.info(f"saved {TRAINING_STEPS + 1} checkpoints, latest: {path}")
 
-    question = EVAL_PROMPT
     test = await me.sample_async(
-        prompt=types.ModelInput.from_ints(render(question)),
+        prompt=types.ModelInput.from_ints(render(EVAL_PROMPT)),
         num_samples=1,
         sampling_params=types.SamplingParams(max_tokens=MAX_TOKENS, temperature=0.7),
     )
     final = str(tok.decode(test.sequences[0].tokens))
     log.info(f"Final result: ({100 * e_rate(final):.1f}% e):\n{highlight_e(final)}")
-    log.info(f"judge says: {await judge.grade(question, final):.0f}/10")
+    log.info(f"judge says: {await judge.grade(EVAL_PROMPT, final):.0f}/10")
 
 
 GRADE_INSTRUCTIONS = """Grade the following response on a scale of 1 to 5. Scoring guidelines:
@@ -265,6 +278,27 @@ class LlmJudge(Judge):
         return float(min(10, max(1, int(number.group()))))
 
 
+def plot_results(mean_rewards: list[float], e_rates: list[float], prefix: str) -> None:
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+    ax1.plot(range(len(mean_rewards)), mean_rewards, marker="o", color="green")
+    ax1.set_title("mean_reward")
+    ax1.set_xlabel("step")
+    ax1.set_ylabel("reward")
+    ax1.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    ax1.set_xticks(range(len(mean_rewards)))
+
+    ax2.plot(range(len(e_rates)), [100 * r for r in e_rates], marker="o", color="red")
+    ax2.set_title("e_rate")
+    ax2.set_xlabel("step")
+    ax2.set_ylabel("% e")
+    ax2.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    ax2.set_xticks(range(len(e_rates)))
+
+    plt.tight_layout()
+    plt.savefig(f"{prefix}_training_run.png")
+    plt.close(fig)
+
+
 def highlight_e(text: str) -> str:
     return re.sub(r"[eE]", "\033[91m\\g<0>\033[0m", text)
 
@@ -289,9 +323,11 @@ def log_checkpoint(
             "prompt": prompt,
         }
     )
+    console_url = checkpoint.get_console_url()
     playground_link = f"\033]8;;https://tinker.thinkingmachines.ai/playground?{playground_query}\033\\Chat in Playground\033]8;;\033\\"
+    console_link = f"\033]8;;{console_url}\033\\View in Console\033]8;;\033\\"
     log.info(f"  [{name}] saved: {checkpoint.path}")
-    log.info(f"  {playground_link}")
+    log.info(f"  {console_link} {playground_link}")
 
 
 if __name__ == "__main__":
