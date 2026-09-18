@@ -1,0 +1,22 @@
+[project]
+name = "tinker-quickstart"
+version = "0.1.0"
+description = "Learn Tinker by training a model to answer without the letter e."
+requires-python = ">=3.13.13"
+dependencies = [
+    "matplotlib",
+    "numpy>=2.5.2",
+    "tinker>=0.29.1",
+    "tinker-cookbook",
+    "tml-renderers>=0.1.0",
+]
+
+
+[tool.uv]
+exclude-newer-package = { tinker = false }
+
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
